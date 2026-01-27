@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     DB_NAME: str
 
     # Timezone
+
     TZ: str = 'Asia/Tashkent'
 
     # JWT
