@@ -2,7 +2,12 @@ import time
 import jwt
 import logging
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Depends
+from fastapi import status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from database import get_db
+from .models import Users
 from settings import settings
 
 
@@ -94,3 +99,55 @@ class JWTBearer(HTTPBearer):
         else:
             logger.debug("Payload is not valid")
             return False
+
+
+async def get_current_user(
+    token: str = Depends(JWTBearer(JWTAuth())),
+    db: AsyncSession = Depends(get_db)
+) -> Users:
+    """Get current authenticated user from JWT token"""
+    try:
+        # Decode token
+        jwt_auth = JWTAuth()
+        payload = jwt_auth.decode_token(token)
+        
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials"
+            )
+        
+        # Get user ID from payload
+        user_id = payload.get("user_id")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials"
+            )
+        
+        # Get user from database
+        result = await db.execute(select(Users).where(Users.id == user_id))
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found"
+            )
+        
+        if user.is_active == 'inactive':
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is disabled"
+            )
+        
+        return user
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_current_user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials"
+        )
